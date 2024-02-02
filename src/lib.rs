@@ -5,7 +5,7 @@ use std::{
 
 pub struct ThreadPool {
     workers: Vec<Worker>,
-    sender: mpsc::Sender<Job>,
+    sender: Option<mpsc::Sender<Job>>,
 }
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
@@ -15,6 +15,8 @@ pub struct PoolCreationError;
 
 impl Drop for ThreadPool {
     fn drop(&mut self) {
+        drop(self.sender.take());
+
         for worker in &mut self.workers {
             println!("Shutting down worker {}", worker.id);
 
@@ -44,7 +46,10 @@ impl ThreadPool {
 
         match size {
             0 => Err(PoolCreationError),
-            _ => Ok(ThreadPool { workers, sender }),
+            _ => Ok(ThreadPool {
+                workers,
+                sender: Some(sender),
+            }),
         }
     }
 
@@ -54,7 +59,7 @@ impl ThreadPool {
     {
         let job = Box::new(f);
 
-        self.sender.send(job).unwrap();
+        self.sender.as_ref().unwrap().send(job).unwrap();
     }
 }
 
@@ -66,11 +71,20 @@ struct Worker {
 impl Worker {
     fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
         let thread = thread::spawn(move || loop {
-            let job = receiver.lock().unwrap().recv().unwrap();
+            let message = receiver.lock().unwrap().recv();
 
-            println!("Worker {} got a job; executing.", id);
+            match message {
+                Ok(job) => {
+                    println!("Worker {} got a job; executing.", id);
 
-            job();
+                    job();
+                }
+
+                Err(_) => {
+                    println!("Worker {} disconnected; shutting down.", id);
+                    break;
+                }
+            }
         });
 
         Worker {
