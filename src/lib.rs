@@ -53,6 +53,13 @@ impl ThreadPool {
         }
     }
 
+    /// Execute a job in the pool
+    ///
+    /// The job is executed in a new thread
+    ///
+    /// # Panics
+    ///
+    /// The `execute` function will panic if the sender is None
     pub fn execute<F>(&self, f: F)
     where
         F: FnOnce() + Send + 'static,
